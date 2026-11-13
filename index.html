@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>House Designer</title>
+<meta name="description" content="3D layout designer for the house scan: tidy the scan and plan indoor and outdoor furniture.">
+<link rel="stylesheet" href="css/style.css">
+<script type="importmap">
+{ "imports": {
+  "three": "./vendor/three/three.module.min.js",
+  "three/addons/": "./vendor/three/addons/",
+  "three-mesh-bvh": "./vendor/three-mesh-bvh.module.js"
+} }
+</script>
+</head>
+<body>
+<div id="app">
+  <header id="topbar">
+    <button id="panelToggle" class="icon-btn" title="Show / hide panel" aria-label="Toggle panel">☰</button>
+    <div class="brand">House Designer</div>
+    <div class="seg" id="viewSeg" role="tablist" aria-label="View">
+      <button data-view="orbit" class="on" title="3D orbit view (1)">3D</button>
+      <button data-view="plan" title="Top-down plan view (2)">Plan</button>
+      <button data-view="walk" title="Walk-through view (3)">Walk</button>
+    </div>
+    <label class="cut" title="Cut away everything above this height">
+      <span>Cut</span>
+      <input type="range" id="cut" min="0.3" max="3.0" step="0.05" value="3.0">
+      <output id="cutOut">off</output>
+    </label>
+    <div class="spacer"></div>
+    <button id="measureBtn" class="tool-btn" title="Measure distance (M)">📏 Measure</button>
+    <button id="undoBtn" class="icon-btn" title="Undo (Ctrl+Z)" aria-label="Undo">↶</button>
+    <button id="redoBtn" class="icon-btn" title="Redo (Ctrl+Shift+Z)" aria-label="Redo">↷</button>
+    <button id="helpBtn" class="icon-btn" title="Help (?)" aria-label="Help">?</button>
+  </header>
+
+  <aside id="panel">
+    <nav class="tabs" role="tablist">
+      <button data-tab="design" class="on">Furniture</button>
+      <button data-tab="tidy">Tidy scan</button>
+      <button data-tab="layouts">Layouts</button>
+      <button data-tab="display">Display</button>
+    </nav>
+
+    <section class="tab" id="tab-design">
+      <div id="selection" class="card hidden">
+        <div class="card-head">
+          <input id="selName" class="name-input" aria-label="Item name">
+          <button id="selClose" class="icon-btn small" title="Deselect (Esc)" aria-label="Deselect">✕</button>
+        </div>
+        <div class="dims">
+          <label>Width<input type="number" id="selW" step="1" min="1"><span>cm</span></label>
+          <label>Depth<input type="number" id="selD" step="1" min="1"><span>cm</span></label>
+          <label>Height<input type="number" id="selH" step="1" min="1"><span>cm</span></label>
+          <label>Raise<input type="number" id="selE" step="1"><span>cm</span></label>
+        </div>
+        <div class="row">
+          <label class="grow">Rotate
+            <input type="range" id="selRot" min="-180" max="180" step="1">
+          </label>
+          <output id="selRotOut">0°</output>
+        </div>
+        <div class="row">
+          <button id="rotL" title="Rotate -15° (Q)">⟲ 15°</button>
+          <button id="rotR" title="Rotate +15° (E)">⟳ 15°</button>
+          <label class="color">Colour <input type="color" id="selColor"></label>
+        </div>
+        <div class="row">
+          <button id="selDup" title="Duplicate (Ctrl+D)">Duplicate</button>
+          <button id="selLock" title="Lock position">Lock</button>
+          <button id="selDel" class="danger" title="Delete (Del)">Delete</button>
+        </div>
+      </div>
+      <input id="catSearch" type="search" placeholder="Search furniture…" aria-label="Search furniture">
+      <div id="catalogue"></div>
+      <p class="hint">Click an item to add it in the middle of the view, then drag it into place. Q/E rotates, arrow keys nudge, Alt-drag ignores snapping.</p>
+    </section>
+
+    <section class="tab hidden" id="tab-tidy">
+      <p class="hint">Furniture was removed from the scan automatically. Use these tools to remove anything it missed, or restore parts it took away. Changes save in this browser.</p>
+      <div class="seg wide" id="tidySeg">
+        <button data-tool="none" class="on">Off</button>
+        <button data-tool="erase">Erase</button>
+        <button data-tool="restore">Restore</button>
+        <button data-tool="box">Box</button>
+      </div>
+      <div id="brushOpts">
+        <label class="row">Brush size <input type="range" id="brushSize" min="0.05" max="1.0" step="0.01" value="0.25"><output id="brushOut">25 cm</output></label>
+      </div>
+      <label class="check"><input type="checkbox" id="protectFloor" checked> Protect floor</label>
+      <label class="check"><input type="checkbox" id="protectWalls"> Protect walls</label>
+      <div id="boxOpts" class="hidden">
+        <p class="hint">Drag the arrows to move the box, use the mode buttons to resize it, then remove or restore everything inside.</p>
+        <div class="seg wide" id="boxModeSeg">
+          <button data-mode="translate" class="on">Move</button>
+          <button data-mode="scale">Resize</button>
+          <button data-mode="rotate">Rotate</button>
+        </div>
+        <div class="row">
+          <button id="boxRemove" class="danger">Remove inside</button>
+          <button id="boxRestore">Restore inside</button>
+        </div>
+      </div>
+      <h4>Clean up</h4>
+      <label class="row">Floating bits under <input type="range" id="floatArea" min="0.01" max="1" step="0.01" value="0.1"><output id="floatOut">0.10 m²</output></label>
+      <button id="removeFloating">Remove floating bits</button>
+      <h4>Show</h4>
+      <label class="check"><input type="checkbox" id="showRemoved"> Show removed parts in red</label>
+      <h4>Reset &amp; share</h4>
+      <div class="col">
+        <button id="resetShipped">Reset to saved clean-up</button>
+        <button id="resetOriginal">Show full original scan</button>
+        <button id="exportMask">Download clean-up (mask.bin)</button>
+        <label class="file-btn">Load clean-up file<input type="file" id="importMask" accept=".bin"></label>
+        <button id="exportGlb">Download cleaned model (.glb)</button>
+      </div>
+      <p class="hint small">To make your clean-up the default for everyone, put the downloaded <code>mask.bin</code> in the site's <code>assets/</code> folder.</p>
+      <p id="tidyStats" class="hint small"></p>
+    </section>
+
+    <section class="tab hidden" id="tab-layouts">
+      <div class="row">
+        <select id="layoutSelect" class="grow" aria-label="Current layout"></select>
+      </div>
+      <div class="row wrap">
+        <button id="layNew">New</button>
+        <button id="layDup">Duplicate</button>
+        <button id="layRename">Rename</button>
+        <button id="layDel" class="danger">Delete</button>
+      </div>
+      <h4>Items in this layout</h4>
+      <ul id="itemList"></ul>
+      <h4>Share</h4>
+      <div class="col">
+        <button id="layLink">Copy share link</button>
+        <button id="layExport">Download layout (.json)</button>
+        <label class="file-btn">Import layout<input type="file" id="layImport" accept=".json,application/json"></label>
+        <button id="layShot">Save screenshot (.png)</button>
+      </div>
+    </section>
+
+    <section class="tab hidden" id="tab-display">
+      <label class="check"><input type="checkbox" id="showCeiling"> Show ceiling</label>
+      <label class="check"><input type="checkbox" id="showFill" checked> Fill floor gaps</label>
+      <label class="check"><input type="checkbox" id="showGrid"> Grid (1 m)</label>
+      <label class="check"><input type="checkbox" id="showLabels" checked> Item labels</label>
+      <label class="check"><input type="checkbox" id="snapGrid" checked> Snap to 5 cm / 15°</label>
+      <label class="check"><input type="checkbox" id="xray"> See-through walls from outside</label>
+      <label class="row">Furniture opacity <input type="range" id="furnOpacity" min="0.2" max="1" step="0.05" value="1"></label>
+    </section>
+  </aside>
+
+  <main id="viewport">
+    <div id="loading"><div class="spinner"></div><div id="loadText">Loading scan…</div><div class="bar"><div id="loadBar"></div></div></div>
+    <div id="toast" class="hidden"></div>
+    <div id="walkHint" class="overlay-hint hidden">Drag to look · WASD / arrows to move · double-click floor to jump there</div>
+    <div id="toolHint" class="overlay-hint hidden"></div>
+  </main>
+</div>
+
+<dialog id="help">
+  <h3>House Designer</h3>
+  <ul>
+    <li><b>Orbit</b>: left-drag rotate, right-drag pan, scroll zoom.</li>
+    <li><b>Furniture</b>: pick from the list, drag to move. <kbd>Q</kbd>/<kbd>E</kbd> rotate, arrows nudge 1&nbsp;cm (<kbd>Shift</kbd> 10&nbsp;cm), <kbd>Del</kbd> delete, <kbd>Ctrl</kbd>+<kbd>D</kbd> duplicate, <kbd>Esc</kbd> deselect.</li>
+    <li><b>Views</b>: <kbd>1</kbd> 3D, <kbd>2</kbd> Plan, <kbd>3</kbd> Walk. The <b>Cut</b> slider slices off the top of the scan so you can see into rooms.</li>
+    <li><b>Measure</b>: <kbd>M</kbd>, then click two points. <kbd>Esc</kbd> to stop; click a measurement label to delete it.</li>
+    <li><b>Tidy scan</b>: Erase / Restore paint over the scan; Box removes or restores everything inside a box.</li>
+    <li>Everything saves in this browser. Use <b>Layouts → Share</b> to send a design to someone else.</li>
+  </ul>
+  <form method="dialog"><button>Close</button></form>
+</dialog>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
