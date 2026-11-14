@@ -12,7 +12,7 @@ A browser-based 3D layout designer built around the 17 Dec 2021 scan of the hous
   - **Show removed parts in red**, undo/redo, reset, and an export of the cleaned model as `.glb`.
 - **Furniture** tab: about 40 parametric indoor and outdoor items (sofas, beds, tables, wardrobes, rugs, loungers, parasol, BBQ, planters, hot tub, plus basic boxes, partitions and doors). Drag items to move them. You can set width, depth, height, raise, rotation and colour.
 - **Views**: 3D orbit, top-down **Plan**, and first-person **Walk**. The **Cut** slider slices off the top of the scan so you can see into rooms.
-- **Floorplan** (Display tab): the agent's floorplan is aligned to the scan. You can show it as a drawing in plan view, add clean walls extruded from it to the scan, or use the clean walls on their own with the plan drawn on the floor.
+- **Floorplan** (Display tab): the listing floorplan is aligned to the scan. You can show it as a drawing in plan view, add clean walls extruded from it to the scan, or use the clean walls on their own with the plan drawn on the floor.
 - **Measure** tool (`M`): click two points to get a distance.
 - **Layouts**: keep several named layouts, duplicate them to try out ideas, and share them as a link or a `.json` file.
 
