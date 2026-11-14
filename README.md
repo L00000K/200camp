@@ -48,7 +48,7 @@ python3 -m http.server 8000
 | `assets/labels.bin` | Per-triangle class from the automatic clean-up (0 clutter, 1 floor, 2 wall, 3 ceiling) |
 | `assets/floorfill.glb` | Floor patch with an inpainted texture that fills the gaps under removed furniture |
 | `assets/meta.json` | Floor height grid used to sit furniture on the floor |
-| `tools/classify.py`, `tools/floorfill.py` | Scripts that generated the files above (Python, trimesh + scipy) |
+| `tools/classify.py`, `tools/floorfill.py`, `tools/export_assets.py` | Scripts that generated the files above (Python, trimesh + scipy + OpenCV). `classify.py` writes the labels, `floorfill.py` the floor patch, `export_assets.py` writes `walls.png` and `meta.json` |
 | `js/floorplan.js`, `assets/floorplan.*` | Clean walls and overlay built from the floorplan |
 | `tools/floorplan.py` | Extracts walls and windows from `tools/floorplan-source.png` using the fitted alignment in `tools/floorplan-align.json` |
 | `vendor/` | three.js r170 and three-mesh-bvh (MIT) |

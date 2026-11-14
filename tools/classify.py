@@ -50,11 +50,50 @@ sizes = ndi.sum(np.ones_like(lab), lab, range(1, nl+1))
 keep = np.zeros(nl+1, bool); keep[1:] = sizes >= 30  # >= 30 cells*25cm2
 wallk = keep[lab] & wall
 wall_near = ndi.binary_dilation(wallk, iterations=2)
+# --- low boundary walls (terrace parapets, fences, balustrades) ---
+# Cells on the outermost edge of the scan whose geometry tops out between
+# LOWTOP and 1.7 m above the floor, forming runs longer than MINRUN.
+# Furniture-sized blobs and anything away from the outer edge stay clutter.
+BAND = 4          # cells (5 cm each): how close to the outer edge
+LOWTOP = 0.95     # metres: minimum height of a parapet / balustrade
+MINRUN = 1.2      # metres: minimum run length
+body = (rel > 0.3) & (rel < 1.7)
+geo = np.zeros((nx,nz), bool); geo[ix[body], iz[body]] = True
+top = np.zeros((nx,nz)); np.maximum.at(top, (ix[body], iz[body]), rel[body])
+# outermost band: looking outwards along an axis there is (almost) nothing
+# beyond BAND cells
+def beyond(g, axis, rev):
+    g = np.flip(g, axis) if rev else g
+    cs_ = np.cumsum(g, axis)
+    tot = cs_.take([-1], axis)
+    sh = np.concatenate([cs_.take(range(BAND, g.shape[axis]), axis),
+                         np.repeat(tot, BAND, axis)], axis)   # count up to i+BAND
+    r = tot - sh
+    return np.flip(r, axis) if rev else r
+band = np.zeros((nx,nz), bool)
+for ax in (0,1):
+    for rev in (False, True): band |= beyond(geo, ax, rev) <= 1
+lowgeo = np.zeros((nx,nz), bool); lowgeo[ix[rel<1.5], iz[rel<1.5]] = True
+fp = ndi.binary_fill_holes(ndi.binary_closing(np.pad(lowgeo, 8), iterations=4))[8:-8, 8:-8]
+cand = band & (top >= LOWTOP) & ~wall_near
+cand = ndi.binary_closing(cand, iterations=3) & ~wall_near
+ll, nlw = ndi.label(cand, structure=np.ones((3,3)))
+lowk = np.zeros_like(cand)
+indoor = ndi.binary_dilation(cv, iterations=6) & (clf < 1.18)   # interior ceiling ~1.05, awning ~1.27
+for k, sl in enumerate(ndi.find_objects(ll), 1):
+    ext = max(sl[0].stop-sl[0].start, sl[1].stop-sl[1].start) * CS
+    comp = ll == k
+    # indoor runs (kitchen units, shelving along a missing wall) stay clutter
+    if ext >= MINRUN and indoor[comp].mean() < 0.5: lowk |= comp
+low_near = ndi.binary_dilation(lowk, iterations=1)
+np.save(out+'/lowwall.npy', lowk); np.save(out+'/footprint.npy', fp)
+print('low boundary wall cells', int(lowk.sum()), 'of', int(cand.sum()), 'candidates')
 labels = np.zeros(len(F), np.uint8)  # 0 removed(furniture) 1 floor 2 wall 3 ceiling
 is_floor = (n[:,1] > 0.6) & (np.abs(rel) < 0.06)
 is_ceil = (n[:,1] < -0.5) & (np.abs(c[:,1]-ceil_at) < 0.12) & has_ceil
 is_wall = wall_near[ix, iz] & (rel > -0.05)
 labels[is_wall] = 2
+labels[low_near[ix, iz] & (rel > -0.05) & (rel < 1.7)] = 2
 labels[is_floor] = 1
 labels[is_ceil] = 3
 # faces high up (above 2.1m) near ceiling e.g. beams, lights -> ceiling-ish keep
