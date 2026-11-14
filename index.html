@@ -142,6 +142,14 @@
     </section>
 
     <section class="tab hidden" id="tab-display">
+      <label class="row fp-only">Model
+        <select id="modelSel" class="grow">
+          <option value="scan">Scan</option>
+          <option value="both">Scan + floorplan walls</option>
+          <option value="plan">Floorplan walls only</option>
+        </select>
+      </label>
+      <label class="check fp-only"><input type="checkbox" id="fpOverlay" checked> Floorplan drawing in plan view</label>
       <label class="check"><input type="checkbox" id="showCeiling"> Show ceiling</label>
       <label class="check"><input type="checkbox" id="showFill" checked> Fill floor gaps</label>
       <label class="check"><input type="checkbox" id="showGrid"> Grid (1 m)</label>

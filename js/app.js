@@ -5,6 +5,7 @@ import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { CATALOGUE, TYPES, buildItemObject } from './furniture.js';
 import { Scan } from './scan.js';
+import { loadFloorplan } from './floorplan.js';
 
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -62,7 +63,7 @@ let selectedId = null;
 let tidyTool = 'none';
 let measuring = false;
 const layoutUndo = [], layoutRedo = [];
-const prefs = Object.assign({ cut: 3.0, showCeiling: false, showFill: true, showGrid: false, showLabels: true, snap: true, xray: true, opacity: 1, panel: true }, JSON.parse(safeGet(PREFS_KEY) || '{}'));
+const prefs = Object.assign({ cut: 3.0, showCeiling: false, showFill: true, showGrid: false, showLabels: true, snap: true, xray: true, opacity: 1, panel: true, model: 'scan', fpOverlay: true }, JSON.parse(safeGet(PREFS_KEY) || '{}'));
 const savePrefs = () => safeSet(PREFS_KEY, JSON.stringify(prefs));
 
 function toast(msg, ms = 2200) {
@@ -240,7 +241,11 @@ function floorPoint(y = scan.meta.floorY) {
 }
 function pickSurface() {
   const it = pickItem();
-  const s = scan.raycast(raycaster, 'visible');
+  let s = scan.mesh.visible ? scan.raycast(raycaster, 'visible') : null;
+  if (fp && fp.walls.visible) {
+    const w = raycaster.intersectObject(fp.walls, true).find(h => h.point.y <= scan.clipPlane.constant);
+    if (w && (!s || w.distance < s.distance)) s = w;
+  }
   if (it && (!s || it.distance < s.distance)) return it.point;
   if (s) return s.point;
   return floorPoint();
@@ -256,6 +261,7 @@ renderer.domElement.addEventListener('pointerdown', ev => {
   if (tc.dragging || tc.axis) return;
   if (measuring) return;
   // tidy brush
+  if ((tidyTool === 'erase' || tidyTool === 'restore') && !scan.mesh.visible) { toast('Set Display > Model to show the scan before tidying'); return; }
   if (tidyTool === 'erase' || tidyTool === 'restore') {
     const hit = scan.raycast(raycaster, tidyTool === 'erase' ? 'visible' : 'any');
     if (hit) {
@@ -420,6 +426,7 @@ function clearMeasurements() { for (const g of measurements) disposeObj(g); meas
 const walk = { yaw: 0, pitch: 0, keys: new Set(), target: null, looking: null };
 let savedOrbit = null;
 let wallPlan = null;
+let fp = null; // floorplan walls + overlay
 function fitPlan() {
   const c = new THREE.Vector3(); scan.bounds.getCenter(c);
   const size = new THREE.Vector3(); scan.bounds.getSize(size);
@@ -459,9 +466,22 @@ function setCut(v, save = true) {
   updateWallPlan();
   if (save) savePrefs();
 }
+function applyModel() {
+  const m = prefs.model, showScan = m !== 'plan';
+  if (scan.mesh) { scan.mesh.visible = showScan; scan.ghost.visible = showScan && scan.showRemoved; }
+  if (scan.fill) scan.fill.visible = prefs.showFill && showScan;
+  if (fp) fp.walls.visible = m !== 'scan';
+  updateWallPlan();
+}
 function updateWallPlan() {
+  if (fp?.overlay) {
+    const asFloor = prefs.model === 'plan';
+    fp.overlay.visible = asFloor || (view === 'plan' && prefs.fpOverlay);
+    fp.overlay.traverse(o => { if (o.material) o.material.opacity = asFloor ? 1 : 0.6; });
+    fp.overlay.position.y = scan.meta.floorY + (asFloor ? 0.002 : view === 'plan' ? Math.min(prefs.cut, 2.3) - 0.02 : 0.02);
+  }
   if (!wallPlan) return;
-  wallPlan.visible = view === 'plan';
+  wallPlan.visible = view === 'plan' && prefs.model === 'scan' && !(fp?.overlay && prefs.fpOverlay);
   wallPlan.position.y = scan.meta.floorY + Math.min(prefs.cut, 2.3) - 0.01;
 }
 function setCeiling(on, save = true) {
@@ -684,7 +704,7 @@ function wireUI() {
   $('#boxRestore').onclick = () => { const n = scan.applyBox(boxMesh, 1); updateTidyStats(); toast(`Restored ${n.toLocaleString()} triangles`); };
   $('#floatArea').oninput = e => { $('#floatOut').textContent = (+e.target.value).toFixed(2) + ' m²'; };
   $('#removeFloating').onclick = () => { toast('Finding floating bits…'); setTimeout(() => { const n = scan.removeFloating(+$('#floatArea').value); updateTidyStats(); toast(n ? `Removed ${n.toLocaleString()} triangles` : 'Nothing floating found'); }, 30); };
-  $('#showRemoved').onchange = e => { scan.showRemoved = e.target.checked; scan.rebuild(); };
+  $('#showRemoved').onchange = e => { scan.showRemoved = e.target.checked; scan.rebuild(); applyModel(); };
   $('#resetShipped').onclick = () => { if (confirm('Throw away your scan edits and go back to the saved clean-up?')) { scan.resetTo('shipped'); updateTidyStats(); } };
   $('#resetOriginal').onclick = () => { if (confirm('Show the whole original scan, including furniture? (You can undo this.)')) { scan.resetTo('original'); updateTidyStats(); } };
   $('#exportMask').onclick = () => download('mask.bin', scan.maskBytes(), 'application/octet-stream');
@@ -723,7 +743,10 @@ function wireUI() {
   // display
   const chk = (id, key, fn) => { const el = $(id); el.checked = prefs[key]; el.onchange = () => { prefs[key] = el.checked; savePrefs(); fn(el.checked); }; fn(prefs[key]); };
   chk('#showCeiling', 'showCeiling', v => setCeiling(v, false));
-  chk('#showFill', 'showFill', v => { if (scan.fill) scan.fill.visible = v; });
+  chk('#showFill', 'showFill', () => applyModel());
+  chk('#fpOverlay', 'fpOverlay', () => updateWallPlan());
+  $('#modelSel').value = prefs.model;
+  $('#modelSel').onchange = e => { prefs.model = e.target.value; savePrefs(); applyModel(); };
   chk('#showGrid', 'showGrid', v => { grid.visible = v; });
   chk('#showLabels', 'showLabels', v => { for (const e of itemObjs.values()) e.label.visible = v || e.data.id === selectedId; });
   chk('#snapGrid', 'snap', () => {});
@@ -775,7 +798,7 @@ function animate() {
   const sc = sun.shadow.camera; sc.left = -12; sc.right = 12; sc.top = 12; sc.bottom = -12; sc.far = 40; sc.updateProjectionMatrix();
   // floor-level shadow catcher so furniture grounds visually
   const catcher = new THREE.Mesh(new THREE.PlaneGeometry(size.x + 4, size.z + 4), new THREE.ShadowMaterial({ opacity: 0.22 }));
-  catcher.rotation.x = -Math.PI / 2; catcher.position.set(c.x, scan.meta.floorY + 0.004, c.z); catcher.receiveShadow = true; scene.add(catcher);
+  catcher.rotation.x = -Math.PI / 2; catcher.position.set(c.x, scan.meta.floorY + 0.004, c.z); catcher.receiveShadow = true; catcher.material.depthWrite = false; catcher.renderOrder = 6; scene.add(catcher);
   // dark wall outline shown in plan view
   const M = scan.meta, wtex = await new THREE.TextureLoader().loadAsync('assets/walls.png').catch(() => null);
   if (wtex) {
@@ -784,6 +807,12 @@ function animate() {
     wallPlan.rotation.x = -Math.PI / 2; wallPlan.position.set(M.x0 + M.nx * M.cs / 2, 0, M.z0 + M.nz * M.cs / 2);
     wallPlan.visible = false; wallPlan.renderOrder = 5; scene.add(wallPlan);
   }
+  try {
+    fp = await loadFloorplan('assets/', scan.meta.floorY, scan.clipPlane);
+    if (fp) { scene.add(fp.walls); if (fp.overlay) scene.add(fp.overlay); }
+  } catch (e) { console.warn('floorplan not loaded', e); }
+  if (!fp) $$('.fp-only').forEach(el => el.classList.add('hidden'));
+  applyModel();
   setCut(prefs.cut, false);
   onResize();
 
@@ -798,5 +827,5 @@ function animate() {
   $('#loading').classList.add('hidden');
   setTimeout(() => { try { thumbs = makeThumbs(); } catch (e) { console.warn(e); } renderCatalogue(thumbs); }, 50);
   renderCatalogue(null);
-  window.__app = { scan, scene, setView, addItem, select, itemObjs, get camera() { return camera; }, setTidyTool, setCut };
+  window.__app = { get fp() { return fp; }, scan, scene, setView, addItem, select, itemObjs, get camera() { return camera; }, setTidyTool, setCut };
 })();
